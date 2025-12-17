@@ -11,11 +11,17 @@ enum class FileType {
     Directory
 };
 
+
+/*
+ *   FileNode is a class representing a node in a file system tree, 
+ *   which can be either a file or a directory.
+ */
+ 
 class FileNode {
 public:
-    FileNode(std::string name,
-             std::string relativePath,
-             FileType type);
+    FileNode(std::string name,          // name of the file or directory
+             std::string relativePath,  // path relative to the root of the file tree
+             FileType type);            // type of the node (file or directory)
     bool isFile() const;
     bool isDirectory() const;
     
