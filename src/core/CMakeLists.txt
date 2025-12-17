@@ -1,6 +1,7 @@
 add_library(backup_core
     backup/BackupManager.cpp
     filesystem/FileScanner.cpp
+    filesystem/FileNode.cpp
 )
 
 target_include_directories(backup_core
