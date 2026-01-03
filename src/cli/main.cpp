@@ -82,7 +82,7 @@ int main() {
         config.sourceRoot = "test_data/source";
         config.backupRoot = "test_data/backup";
         config.deleteRemoved = true;
-        config.dryRun = true;
+        config.dryRun = false;  // Actually execute incremental backup
 
         BackupManager manager(config);
 
@@ -111,7 +111,7 @@ int main() {
             std::cout << " -> " << action.targetPath << "\n";
         }
 
-        std::cout << "Execute (dry run)...\n";
+        std::cout << "Execute (incremental backup)...\n";
         manager.executePlan(plan);
     }
 
@@ -137,6 +137,22 @@ int main() {
             std::cout << "  " << (file.isDirectory ? "D" : "F") << " " << file.relativePath
                       << " size=" << file.size << " mtime=" << file.mtimeNs << "\n";
         }
+    }
+
+    std::cout << "\n=== Restore Test ===\n";
+    {
+        BackupManager::BackupConfig config;
+        config.backupRoot = "test_data/backup";
+        config.dryRun = false;
+
+        BackupManager manager(config);
+
+        fs::path restoreRoot = "test_data/restored";
+
+        std::cout << "Restoring to " << restoreRoot << "...\n";
+        manager.restore(restoreRoot);
+
+        std::cout << "Restore completed.\n";
     }
 
     std::cout << "\nTest completed successfully!\n";

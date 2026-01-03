@@ -20,7 +20,6 @@ void BackupManager::scan() {
     if (!fs::exists(config_.sourceRoot) || !fs::is_directory(config_.sourceRoot)) {
         throw std::runtime_error("Invalid source root");
     }
-
     if (!fs::exists(config_.backupRoot) || !fs::is_directory(config_.backupRoot)) {
         throw std::runtime_error("Invalid backup root");
     }
@@ -38,22 +37,23 @@ std::vector<BackupManager::BackupAction> BackupManager::buildPlan() {
     }
 
     changes_ = FileTreeDiff::diff(*backupTree_, *sourceTree_);
-
     return translateChangesToActions(changes_);
 }
 
-void BackupManager::executePlan(const std::vector<BackupAction>& plan) {
+bool BackupManager::executePlan(const std::vector<BackupAction>& plan) {
+    bool success = true;
+
     for (const auto& action : plan) {
-        executeAction(action);
+        if (!executeBackupAction(action)) {
+            success = false;
+        }
     }
 
-    // 写metadata
-    if (!config_.dryRun) {
-        if (!sourceTree_) {
-            throw std::runtime_error("Source tree is not available for metadata writing");
-        }
+    if (success && !config_.dryRun) {
         BackupMetadata::writeMetadata(*sourceTree_, config_.backupRoot);
     }
+
+    return success;
 }
 
 fs::path BackupManager::resolveSourcePath(const std::string& relativePath) const {
@@ -72,31 +72,30 @@ BackupManager::translateChangesToActions(
 
     for (const auto& change : changes) {
         const auto& rel = change.relativePath;
-
-        // Skip metadata file
-        if (rel == ".backupmeta") {
-            continue;
-        }
+        if (rel == kMetadataFile) continue;
 
         switch (change.type) {
-        case filesystem::ChangeType::Added:
+        case ChangeType::Added:
             if (change.newNode && change.newNode->isDirectory()) {
                 actions.push_back({ActionType::CreateDirectory, {}, resolveBackupPath(rel)});
             } else {
-                actions.push_back({ActionType::CopyFile, resolveSourcePath(rel), resolveBackupPath(rel)});
+                actions.push_back({ActionType::CopyFile,
+                                   resolveSourcePath(rel),
+                                   resolveBackupPath(rel)});
             }
             break;
 
-        case filesystem::ChangeType::Modified:
-            actions.push_back({ActionType::UpdateFile, resolveSourcePath(rel), resolveBackupPath(rel)});
+        case ChangeType::Modified:
+            actions.push_back({ActionType::UpdateFile,
+                               resolveSourcePath(rel),
+                               resolveBackupPath(rel)});
             break;
 
-        case filesystem::ChangeType::Removed:
-            if (config_.deleteRemoved && change.oldNode) {
+        case ChangeType::Removed:
+            if (config_.deleteRemoved) {
                 actions.push_back({ActionType::RemovePath, {}, resolveBackupPath(rel)});
             }
             break;
-
         default:
             break;
         }
@@ -105,55 +104,93 @@ BackupManager::translateChangesToActions(
     return actions;
 }
 
-void BackupManager::executeAction(const BackupAction& action) {
-    if (config_.dryRun) {
-        return;
+bool BackupManager::executeBackupAction(const BackupAction& action) {
+    if (config_.dryRun) return true;
+
+    try {
+        switch (action.type) {
+        case ActionType::CreateDirectory:
+            fs::create_directories(action.targetPath);
+            break;
+
+        case ActionType::CopyFile:
+        case ActionType::UpdateFile:
+            fs::create_directories(action.targetPath.parent_path());
+            fs::copy_file(action.sourcePath, action.targetPath,
+                          fs::copy_options::overwrite_existing);
+
+            fs::permissions(action.targetPath,
+                            fs::status(action.sourcePath).permissions());
+            fs::last_write_time(action.targetPath,
+                                fs::last_write_time(action.sourcePath));
+            break;
+
+        case ActionType::RemovePath:
+            fs::remove_all(action.targetPath);
+            break;
+        }
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << "[Backup] failed: " << e.what() << "\n";
+        return false;
+    }
+}
+
+void BackupManager::restore(const fs::path& restoreRoot) {
+    auto metadata = BackupMetadata::readMetadata(config_.backupRoot);
+    auto actions = translateMetadataToActions(metadata, fs::absolute(restoreRoot));
+
+    for (const auto& action : actions) {
+        executeRestoreAction(action);
+    }
+}
+
+std::vector<BackupManager::BackupAction>
+BackupManager::translateMetadataToActions(
+    const BackupMetadataInfo& metadata, const fs::path& restoreRoot) const {
+
+    std::vector<BackupAction> dirs;
+    std::vector<BackupAction> files;
+
+    for (const auto& entry : metadata.files) {
+        if (entry.relativePath == kMetadataFile) continue;
+
+        fs::path src = config_.backupRoot / entry.relativePath;
+        fs::path dst = restoreRoot / entry.relativePath;
+
+        if (entry.isDirectory) {
+            dirs.push_back({ActionType::CreateDirectory, {}, dst});
+        } else {
+            files.push_back({ActionType::CopyFile, src, dst});
+        }
     }
 
-    switch (action.type) {
-    case ActionType::CreateDirectory:
-        fs::create_directories(action.targetPath);
-        break;
+    dirs.insert(dirs.end(), files.begin(), files.end());
+    return dirs;
+}
 
-    case ActionType::CopyFile:
-    case ActionType::UpdateFile:
-        // 创建父目录
-        fs::create_directories(action.targetPath.parent_path());
+bool BackupManager::executeRestoreAction(const BackupAction& action) {
+    if (config_.dryRun) return true;
 
-        // 拷贝文件内容
-        fs::copy_file(
-            action.sourcePath,
-            action.targetPath,
-            fs::copy_options::overwrite_existing
-        );
+    try {
+        switch (action.type) {
+        case ActionType::CreateDirectory:
+            fs::create_directories(action.targetPath);
+            break;
 
-        // 复制权限
-        try {
-            auto perms = fs::status(action.sourcePath).permissions();
-            fs::permissions(action.targetPath, perms);
-        } catch (const std::exception& e) {
-            std::cerr << "Warning: failed to copy permissions for "
-                      << action.targetPath << ": " << e.what() << "\n";
+        case ActionType::CopyFile:
+            fs::create_directories(action.targetPath.parent_path());
+            fs::copy_file(action.sourcePath, action.targetPath,
+                          fs::copy_options::overwrite_existing);
+            break;
+
+        default:
+            break;
         }
-
-        // 保留修改时间 (mtime)
-        try {
-            auto mtime = fs::last_write_time(action.sourcePath);
-            fs::last_write_time(action.targetPath, mtime);
-        } catch (const std::exception& e) {
-            std::cerr << "Warning: failed to preserve mtime for "
-                      << action.targetPath << ": " << e.what() << "\n";
-        }
-        break;
-
-    case ActionType::RemovePath:
-        if (fs::exists(action.targetPath)) {
-            fs::remove_all(action.targetPath);
-        }
-        break;
-
-    default:
-        throw std::runtime_error("Unknown BackupAction type");
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << "[Restore] failed: " << e.what() << "\n";
+        return false;
     }
 }
 

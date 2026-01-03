@@ -6,6 +6,7 @@
 
 #include "filesystem/FileTree.h"
 #include "filesystem/FileTreeDiff.h"
+#include "BackupMetadata.h"
 
 namespace backup::core {
 
@@ -21,10 +22,10 @@ namespace fs = std::filesystem;
 class BackupManager {
 public:
     struct BackupConfig {
-        fs::path sourceRoot;   // directory to back up
-        fs::path backupRoot;   // destination root
-        bool deleteRemoved = true;   // mirror mode
-        bool dryRun = false;          // do not modify filesystem
+        fs::path sourceRoot;            // directory to back up
+        fs::path backupRoot;            // destination root
+        bool deleteRemoved = true;      // mirror mode
+        bool dryRun = false;            // do not modify filesystem
     };
 
     enum class ActionType {
@@ -36,20 +37,19 @@ public:
 
     struct BackupAction {
         ActionType type;
-        fs::path sourcePath;   // may be empty for Remove
+        fs::path sourcePath;   // restore 时为 backup path
         fs::path targetPath;
     };
 
     explicit BackupManager(BackupConfig config);
 
-    // Build snapshot of source & destination
     void scan();
 
-    // Compute diff and generate executable plan
     std::vector<BackupAction> buildPlan();
 
-    // Execute plan (respecting dryRun)
-    void executePlan(const std::vector<BackupAction>& plan);
+    bool executePlan(const std::vector<BackupAction>& plan);
+
+    void restore(const fs::path& restoreRoot);
 
 private:
     BackupConfig config_;
@@ -66,7 +66,14 @@ private:
     translateChangesToActions(
         const std::vector<filesystem::FileChange>& changes) const;
 
-    void executeAction(const BackupAction& action);
+    std::vector<BackupAction>
+    translateMetadataToActions(
+        const BackupMetadataInfo& metadata, const fs::path& restoreRoot) const;
+
+    bool executeBackupAction(const BackupAction& action);
+    bool executeRestoreAction(const BackupAction& action);
+
+    static constexpr const char* kMetadataFile = ".backupmeta";
 };
 
 } // namespace backup::core
