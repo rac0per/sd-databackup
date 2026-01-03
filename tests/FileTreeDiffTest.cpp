@@ -45,6 +45,15 @@ TEST_F(FileTreeDiffTest, IdenticalTrees) {
 }
 TEST_F(FileTreeDiffTest, AddedFiles) {
     copy(oldRoot, newRoot, copy_options::recursive);
+    for (const auto& entry : recursive_directory_iterator(oldRoot)) {
+        if (is_regular_file(entry)) {
+            path oldPath = entry.path();
+            path newPath = newRoot / oldPath.lexically_relative(oldRoot);
+            if (exists(newPath)) {
+                last_write_time(newPath, last_write_time(oldPath));
+            }
+        }
+    }
     std::ofstream(newRoot / "file3.txt") << "content3";
     std::ofstream(newRoot / "subdir" / "file4.txt") << "content4";
     create_directories(newRoot / "newdir");

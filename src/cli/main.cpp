@@ -117,8 +117,8 @@ int main(int argc, char *argv[])
             config.backupRoot = backupDir;
             config.deleteRemoved = mirrorMode;
             config.dryRun = false;
-            config.compressionType = backup::core::CompressionType::None;
-            config.encryptionType = backup::core::EncryptionType::None;
+            config.compressionType = BackupManager::CompressionType::None;
+            config.encryptionType = BackupManager::EncryptionType::None;
 
             // 创建备份管理器并执行备份
             BackupManager manager(config);
@@ -144,25 +144,14 @@ int main(int argc, char *argv[])
             std::string backupDir = argv[2];
             std::string restoreDir = argv[3];
 
-            // 创建还原配置
+            // 创建备份管理器，配置备份目录
             BackupManager::BackupConfig config;
-            config.sourceRoot = backupDir;
-            config.backupRoot = restoreDir;
-            config.deleteRemoved = true; // 还原时使用镜像模式
-            config.dryRun = false;
-            config.compressionType = backup::core::CompressionType::None;
-            config.encryptionType = backup::core::EncryptionType::None;
+            config.backupRoot = backupDir;
 
             // 创建备份管理器并执行还原
             BackupManager manager(config);
-            std::cout << "正在扫描目录...\n";
-            manager.scan();
-
-            std::cout << "正在生成还原计划...\n";
-            auto plan = manager.buildPlan();
-
-            std::cout << "正在执行还原计划...\n";
-            manager.executePlan(plan);
+            std::cout << "正在从备份还原...\n";
+            manager.restore(restoreDir);
 
             std::cout << "目录还原完成！\n";
         }

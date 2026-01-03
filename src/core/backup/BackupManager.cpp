@@ -69,11 +69,9 @@ fs::path BackupManager::resolveBackupPath(const std::string& relativePath) const
 }
 
 std::vector<BackupManager::BackupAction>
-BackupManager::translateChangesToActions(
-    const std::vector<filesystem::FileChange>& changes) const {
+BackupManager::translateChangesToActions(const std::vector<filesystem::FileChange>& changes) const {
 
     std::vector<BackupAction> actions;
-
     for (const auto& change : changes) {
         const auto& rel = change.relativePath;
 

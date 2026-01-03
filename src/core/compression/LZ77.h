@@ -2,6 +2,7 @@
 #include <vector>
 #include <tuple>
 #include <cstdint>
+#include <cstddef>
 namespace backup::core::compression
 {
     class LZ77

@@ -24,8 +24,7 @@ namespace fs = std::filesystem;
 class BackupManager {
 public:
     // 压缩算法类型
-    enum class CompressionType
-    {
+    enum class CompressionType {
         None,
         Gzip,
         Bzip2,
@@ -33,8 +32,7 @@ public:
     };
 
     // 加密算法类型
-    enum class EncryptionType
-    {
+    enum class EncryptionType {
         None,
         AES,
         DES,
@@ -53,8 +51,7 @@ public:
     };
 
 
-    enum class ActionType
-    {
+    enum class ActionType {
         CreateDirectory,
         CopyFile,
         UpdateFile,
