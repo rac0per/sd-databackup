@@ -1,4 +1,5 @@
 #include "BackupManager.h"
+#include "BackupMetadata.h"
 
 #include <stdexcept>
 #include <filesystem>
@@ -45,6 +46,14 @@ void BackupManager::executePlan(const std::vector<BackupAction>& plan) {
     for (const auto& action : plan) {
         executeAction(action);
     }
+
+    // 写metadata
+    if (!config_.dryRun) {
+        if (!sourceTree_) {
+            throw std::runtime_error("Source tree is not available for metadata writing");
+        }
+        BackupMetadata::writeMetadata(*sourceTree_, config_.backupRoot);
+    }
 }
 
 fs::path BackupManager::resolveSourcePath(const std::string& relativePath) const {
@@ -54,6 +63,7 @@ fs::path BackupManager::resolveSourcePath(const std::string& relativePath) const
 fs::path BackupManager::resolveBackupPath(const std::string& relativePath) const {
     return config_.backupRoot / relativePath;
 }
+
 std::vector<BackupManager::BackupAction>
 BackupManager::translateChangesToActions(
     const std::vector<filesystem::FileChange>& changes) const {
@@ -63,39 +73,27 @@ BackupManager::translateChangesToActions(
     for (const auto& change : changes) {
         const auto& rel = change.relativePath;
 
+        // Skip metadata file
+        if (rel == ".backupmeta") {
+            continue;
+        }
+
         switch (change.type) {
         case filesystem::ChangeType::Added:
             if (change.newNode && change.newNode->isDirectory()) {
-                actions.push_back({
-                    ActionType::CreateDirectory,
-                    {},
-                    resolveBackupPath(rel)
-                });
+                actions.push_back({ActionType::CreateDirectory, {}, resolveBackupPath(rel)});
             } else {
-                actions.push_back({
-                    ActionType::CopyFile,
-                    resolveSourcePath(rel),
-                    resolveBackupPath(rel)
-                });
+                actions.push_back({ActionType::CopyFile, resolveSourcePath(rel), resolveBackupPath(rel)});
             }
             break;
 
         case filesystem::ChangeType::Modified:
-            // Modified 在 diff 中已保证是文件
-            actions.push_back({
-                ActionType::UpdateFile,
-                resolveSourcePath(rel),
-                resolveBackupPath(rel)
-            });
+            actions.push_back({ActionType::UpdateFile, resolveSourcePath(rel), resolveBackupPath(rel)});
             break;
 
         case filesystem::ChangeType::Removed:
             if (config_.deleteRemoved && change.oldNode) {
-                actions.push_back({
-                    ActionType::RemovePath,
-                    {},
-                    resolveBackupPath(rel)
-                });
+                actions.push_back({ActionType::RemovePath, {}, resolveBackupPath(rel)});
             }
             break;
 
@@ -106,7 +104,6 @@ BackupManager::translateChangesToActions(
 
     return actions;
 }
-
 
 void BackupManager::executeAction(const BackupAction& action) {
     if (config_.dryRun) {
@@ -120,12 +117,33 @@ void BackupManager::executeAction(const BackupAction& action) {
 
     case ActionType::CopyFile:
     case ActionType::UpdateFile:
+        // 创建父目录
         fs::create_directories(action.targetPath.parent_path());
+
+        // 拷贝文件内容
         fs::copy_file(
             action.sourcePath,
             action.targetPath,
             fs::copy_options::overwrite_existing
         );
+
+        // 复制权限
+        try {
+            auto perms = fs::status(action.sourcePath).permissions();
+            fs::permissions(action.targetPath, perms);
+        } catch (const std::exception& e) {
+            std::cerr << "Warning: failed to copy permissions for "
+                      << action.targetPath << ": " << e.what() << "\n";
+        }
+
+        // 保留修改时间 (mtime)
+        try {
+            auto mtime = fs::last_write_time(action.sourcePath);
+            fs::last_write_time(action.targetPath, mtime);
+        } catch (const std::exception& e) {
+            std::cerr << "Warning: failed to preserve mtime for "
+                      << action.targetPath << ": " << e.what() << "\n";
+        }
         break;
 
     case ActionType::RemovePath:
