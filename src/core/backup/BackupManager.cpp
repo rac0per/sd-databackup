@@ -29,20 +29,20 @@ inline backup::core::compression::CompressionType toCompressionAlgo(
     case BackupManager::CompressionType::Lz77:
         return backup::core::compression::CompressionType::Lz77;
     default:
-        throw std::invalid_argument("Invalid compression type");
+        throw std::invalid_argument("压缩类型无效");
     }
 }
 }
 
 void BackupManager::scan() {
     if (!fs::exists(config_.sourceRoot) || !fs::is_directory(config_.sourceRoot)) {
-        throw std::runtime_error("Invalid source root");
+        throw std::runtime_error("源目录无效");
     }
 
     if (!fs::exists(config_.backupRoot)) {
         fs::create_directories(config_.backupRoot);
     } else if (!fs::is_directory(config_.backupRoot)) {
-        throw std::runtime_error("Invalid backup root");
+        throw std::runtime_error("备份目录无效");
     }
 
     sourceTree_ = std::make_unique<FileTree>(config_.sourceRoot);
@@ -177,7 +177,7 @@ bool BackupManager::executeBackupAction(const BackupAction& action) {
 
             // 加密（可选）
             if (config_.enableEncryption && config_.encryptionType != EncryptionType::None) {
-                std::cerr << "[Encryption] no encryption algorithms available\n";
+                std::cerr << "[加密] 暂无可用加密算法\n";
                 fs::remove(tempCompressed);
                 fs::remove(tempEncrypted);
                 return false;
@@ -213,13 +213,13 @@ bool BackupManager::executeBackupAction(const BackupAction& action) {
             fs::remove_all(action.targetPath);
             break;
 
-        default:
-            throw std::runtime_error("Unknown backup action");
+            default:
+                throw std::runtime_error("未知的备份操作");
         }
 
         return true;
     } catch (const std::exception& e) {
-        std::cerr << "[Backup] failed: " << e.what() << "\n";
+        std::cerr << "[备份] 失败: " << e.what() << "\n";
         return false;
     }
 }
@@ -293,7 +293,7 @@ bool BackupManager::executeRestoreAction(const BackupAction& action) {
 
             // 解密（可选）
             if (config_.enableEncryption && config_.encryptionType != EncryptionType::None) {
-                std::cerr << "[Encryption] no encryption algorithms available\n";
+                std::cerr << "[加密] 暂无可用加密算法\n";
                 fs::remove(tempDecrypted);
                 return false;
             }
@@ -341,7 +341,7 @@ bool BackupManager::executeRestoreAction(const BackupAction& action) {
 
         return true;
     } catch (const std::exception& e) {
-        std::cerr << "[Restore] failed: " << e.what() << "\n";
+        std::cerr << "[还原] 失败: " << e.what() << "\n";
         return false;
     }
 }
@@ -361,7 +361,7 @@ bool BackupManager::applyCompression(const fs::path& input, const fs::path& outp
         compressor->compress(input, output);
         return true;
     } catch (const std::exception& e) {
-        std::cerr << "[Compression] failed: " << e.what() << "\n";
+        std::cerr << "[压缩] 失败: " << e.what() << "\n";
         return false;
     }
 }
@@ -381,19 +381,19 @@ bool BackupManager::applyDecompression(const fs::path& input, const fs::path& ou
         compressor->decompress(input, output);
         return true;
     } catch (const std::exception& e) {
-        std::cerr << "[Decompression] failed: " << e.what() << "\n";
+        std::cerr << "[解压] 失败: " << e.what() << "\n";
         return false;
     }
 }
 
 bool BackupManager::applyEncryption(const fs::path& input, const fs::path& output) const {
     // 当前无加密算法，直接返回失败以触发上层保护逻辑
-    std::cerr << "[Encryption] no encryption algorithms available\n";
+    std::cerr << "[加密] 暂无可用加密算法\n";
     return false;
 }
 
 bool BackupManager::applyDecryption(const fs::path& input, const fs::path& output) const {
-    std::cerr << "[Decryption] no encryption algorithms available\n";
+    std::cerr << "[解密] 暂无可用加密算法\n";
     return false;
 }
 

@@ -19,13 +19,13 @@ int main(int argc, char *argv[])
     {
         std::cerr << "用法: " << argv[0] << " <命令> <参数...>\n";
         std::cerr << "  命令列表:\n";
-        std::cerr << "    compress <输入文件> <输出文件> <算法>      压缩单个文件\n";
-            std::cerr << "      算法: huffman | lz77\n";
-        std::cerr << "    decompress <输入文件> <输出文件> <算法>    解压单个文件\n";
-            std::cerr << "      算法: huffman | lz77\n";
-        std::cerr << "    backup <源目录> <备份目录> [mirror]         备份目录树\n";
+        std::cerr << "    1. compress <输入文件> <输出文件> <算法>      压缩单个文件\n";
+        std::cerr << "      算法: huffman | lz77\n";
+        std::cerr << "    2. decompress <输入文件> <输出文件> <算法>    解压单个文件\n";
+        std::cerr << "      算法: huffman | lz77\n";
+        std::cerr << "    3. backup <源目录> <备份目录> [mirror]         备份目录树\n";
         std::cerr << "      mirror: 镜像模式，删除目标目录中不存在的文件\n";
-        std::cerr << "    restore <备份目录> <还原目录>             从备份还原目录树\n";
+        std::cerr << "    4. restore <备份目录> <还原目录>             从备份还原目录树\n";
         return 1;
     }
 
@@ -91,8 +91,8 @@ int main(int argc, char *argv[])
         {
             if (argc < 4)
             {
-                std::cerr << "用法: " << argv[0] << " backup <源目录> <备份目录> [mirror] [compress=<algorithm>]\n";
-                std::cerr << "  algorithm: none | huffman | lz77\n";
+                std::cerr << "用法: " << argv[0] << " backup <源目录> <备份目录> [mirror] [compress=<算法>]\n";
+                std::cerr << "  算法: none | huffman | lz77\n";
                 return 1;
             }
 
