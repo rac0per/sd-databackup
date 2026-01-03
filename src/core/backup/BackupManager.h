@@ -3,10 +3,12 @@
 #include <filesystem>
 #include <vector>
 #include <memory>
+#include <string>
 
 #include "filesystem/FileTree.h"
 #include "filesystem/FileTreeDiff.h"
 #include "BackupMetadata.h"
+
 
 namespace backup::core {
 
@@ -21,20 +23,44 @@ namespace fs = std::filesystem;
  */
 class BackupManager {
 public:
+    // 压缩算法类型
+    enum class CompressionType
+    {
+        None,
+        Gzip,
+        Bzip2,
+        Lz4
+    };
+
+    // 加密算法类型
+    enum class EncryptionType
+    {
+        None,
+        AES,
+        DES,
+        RSA
+    };
+  
     struct BackupConfig {
         fs::path sourceRoot;            // directory to back up
         fs::path backupRoot;            // destination root
         bool deleteRemoved = true;      // mirror mode
         bool dryRun = false;            // do not modify filesystem
+        CompressionType compressionType = CompressionType::None;
+        // 加密配置
+        EncryptionType encryptionType = EncryptionType::None;
+        std::string encryptionKey; // 加密密钥
     };
 
-    enum class ActionType {
+
+    enum class ActionType
+    {
         CreateDirectory,
         CopyFile,
         UpdateFile,
         RemovePath
     };
-
+  
     struct BackupAction {
         ActionType type;
         fs::path sourcePath;   // restore 时为 backup path
@@ -73,6 +99,22 @@ private:
     bool executeBackupAction(const BackupAction& action);
     bool executeRestoreAction(const BackupAction& action);
 
+    bool applyCompression(
+        const fs::path& input,
+        const fs::path& output) const;
+
+    bool applyDecompression(
+        const fs::path& input,
+        const fs::path& output) const;
+
+    bool applyEncryption(
+        const fs::path& input,
+        const fs::path& output) const;
+
+    bool applyDecryption(
+        const fs::path& input,
+        const fs::path& output) const;
+  
     static constexpr const char* kMetadataFile = ".backupmeta";
 };
 

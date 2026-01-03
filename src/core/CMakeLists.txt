@@ -1,6 +1,11 @@
 add_library(backup_core
     backup/BackupManager.cpp
     backup/BackupMetadata.cpp
+    compression/Compression.cpp
+    compression/Huffman.cpp
+    compression/LZ77.cpp
+    encryption/Encryption.cpp
+    encryption/MD5.cpp
     filesystem/FileTreeDiff.cpp
     filesystem/FileNode.cpp
     filesystem/FileTree.cpp
