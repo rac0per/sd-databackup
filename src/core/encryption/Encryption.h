@@ -3,7 +3,7 @@
 #include <filesystem>
 namespace backup::core::encryption {
 enum class EncryptionType {
-    MD5
+    None
 };
 class Encryption {
 public:

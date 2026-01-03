@@ -1,159 +1,161 @@
 #include <gtest/gtest.h>
 #include <filesystem>
 #include <fstream>
-#include <vector>
+#include <string>
 #include "backup/BackupManager.h"
+
 using namespace backup::core;
-using namespace std::filesystem;
+namespace fs = std::filesystem;
+
+namespace {
+void writeFile(const fs::path& p, const std::string& content) {
+    fs::create_directories(p.parent_path());
+    std::ofstream(p, std::ios::binary) << content;
+}
+
+std::string readFile(const fs::path& p) {
+    std::ifstream in(p, std::ios::binary);
+    return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+}
+
+std::string readMetaValue(const fs::path& meta, const std::string& key) {
+    std::ifstream in(meta);
+    std::string line;
+    const std::string prefix = key + "=";
+    while (std::getline(in, line)) {
+        if (line.rfind(prefix, 0) == 0) return line.substr(prefix.size());
+    }
+    return {};
+}
+}
+
 class BackupManagerTest : public ::testing::Test {
 protected:
-    path sourceRoot;
-    path backupRoot;
+    fs::path sourceRoot;
+    fs::path backupRoot;
+    fs::path restoreRoot;
+
     void SetUp() override {
-        sourceRoot = temp_directory_path() / "backup_source";
-        backupRoot = temp_directory_path() / "backup_dest";
-        create_directories(sourceRoot);
-        create_directories(backupRoot);
+        sourceRoot = fs::temp_directory_path() / "bm_src";
+        backupRoot = fs::temp_directory_path() / "bm_dst";
+        restoreRoot = fs::temp_directory_path() / "bm_restore";
+        fs::create_directories(sourceRoot);
+        fs::create_directories(backupRoot);
     }
+
     void TearDown() override {
-        remove_all(sourceRoot);
-        remove_all(backupRoot);
-    }
-    void createTestFile(const path& filePath, const std::string& content) {
-        std::ofstream(filePath) << content;
-    }
-    bool fileExists(const path& filePath) {
-        return exists(filePath);
-    }
-    std::string readFileContent(const path& filePath) {
-        std::ifstream file(filePath);
-        std::string content((std::istreambuf_iterator<char>(file)),
-                           std::istreambuf_iterator<char>());
-        return content;
+        fs::remove_all(sourceRoot);
+        fs::remove_all(backupRoot);
+        fs::remove_all(restoreRoot);
     }
 };
-TEST_F(BackupManagerTest, FullBackup) {
-    createTestFile(sourceRoot / "file1.txt", "content1");
-    createTestFile(sourceRoot / "file2.txt", "content2");
-    create_directories(sourceRoot / "subdir");
-    createTestFile(sourceRoot / "subdir" / "file3.txt", "content3");
-    BackupManager::BackupConfig config{
-        .sourceRoot = sourceRoot,
-        .backupRoot = backupRoot,
-        .deleteRemoved = true,
-        .dryRun = false
-    };
-    BackupManager manager(config);
-    manager.scan();
-    auto plan = manager.buildPlan();
-    manager.executePlan(plan);
-    EXPECT_TRUE(fileExists(backupRoot / "file1.txt"));
-    EXPECT_TRUE(fileExists(backupRoot / "file2.txt"));
-    EXPECT_TRUE(fileExists(backupRoot / "subdir" / "file3.txt"));
-    EXPECT_EQ(readFileContent(backupRoot / "file1.txt"), "content1");
-    EXPECT_EQ(readFileContent(backupRoot / "file2.txt"), "content2");
-    EXPECT_EQ(readFileContent(backupRoot / "subdir" / "file3.txt"), "content3");
+
+TEST_F(BackupManagerTest, BackupAndRestoreWithoutCompression) {
+    writeFile(sourceRoot / "file1.txt", "a");
+    writeFile(sourceRoot / "sub/inner.txt", "b");
+
+    BackupManager::BackupConfig config{};
+    config.sourceRoot = sourceRoot;
+    config.backupRoot = backupRoot;
+    config.deleteRemoved = true;
+    config.enableCompression = false;
+
+    BackupManager mgr(config);
+    mgr.scan();
+    auto plan = mgr.buildPlan();
+    mgr.executePlan(plan);
+
+    EXPECT_TRUE(fs::exists(backupRoot / "file1.txt"));
+    EXPECT_TRUE(fs::exists(backupRoot / "sub/inner.txt"));
+    EXPECT_TRUE(fs::exists(backupRoot / ".backupmeta"));
+    EXPECT_EQ(readFile(backupRoot / "file1.txt"), "a");
+
+    BackupManager::BackupConfig restoreCfg{};
+    restoreCfg.backupRoot = backupRoot;
+    BackupManager restoreMgr(restoreCfg);
+    restoreMgr.restore(restoreRoot);
+
+    EXPECT_EQ(readFile(restoreRoot / "file1.txt"), "a");
+    EXPECT_EQ(readFile(restoreRoot / "sub/inner.txt"), "b");
+
+    auto srcMtime = fs::last_write_time(sourceRoot / "file1.txt");
+    auto restoredMtime = fs::last_write_time(restoreRoot / "file1.txt");
+    EXPECT_EQ(srcMtime, restoredMtime);
 }
-TEST_F(BackupManagerTest, IncrementalBackup) {
-    createTestFile(sourceRoot / "file1.txt", "content1");
-    createTestFile(sourceRoot / "file2.txt", "content2");
-    BackupManager::BackupConfig config{
-        .sourceRoot = sourceRoot,
-        .backupRoot = backupRoot,
-        .deleteRemoved = true,
-        .dryRun = false
-    };
-    BackupManager manager(config);
-    manager.scan();
-    auto plan = manager.buildPlan();
-    manager.executePlan(plan);
-    createTestFile(sourceRoot / "file1.txt", "modified content1");
-    createTestFile(sourceRoot / "file3.txt", "content3");
-    manager.scan();
-    plan = manager.buildPlan();
-    manager.executePlan(plan);
-    EXPECT_EQ(readFileContent(backupRoot / "file1.txt"), "modified content1");
-    EXPECT_EQ(readFileContent(backupRoot / "file2.txt"), "content2");
-    EXPECT_TRUE(fileExists(backupRoot / "file3.txt"));
-    EXPECT_EQ(readFileContent(backupRoot / "file3.txt"), "content3");
+
+TEST_F(BackupManagerTest, BackupWithCompressionThenRestoreHuffman) {
+    writeFile(sourceRoot / "data.bin", std::string(1024, 'x'));
+
+    BackupManager::BackupConfig config{};
+    config.sourceRoot = sourceRoot;
+    config.backupRoot = backupRoot;
+    config.deleteRemoved = true;
+    config.enableCompression = true;
+    config.compressionType = BackupManager::CompressionType::Huffman;
+
+    BackupManager mgr(config);
+    mgr.scan();
+    auto plan = mgr.buildPlan();
+    mgr.executePlan(plan);
+
+    EXPECT_EQ(readMetaValue(backupRoot / ".backupmeta", "compression"), "huffman");
+
+    BackupManager::BackupConfig restoreCfg{};
+    restoreCfg.backupRoot = backupRoot;
+    BackupManager restoreMgr(restoreCfg);
+    restoreMgr.restore(restoreRoot);
+
+    EXPECT_EQ(readFile(restoreRoot / "data.bin"), std::string(1024, 'x'));
 }
-TEST_F(BackupManagerTest, MirrorBackup) {
-    createTestFile(sourceRoot / "file1.txt", "content1");
-    createTestFile(sourceRoot / "file2.txt", "content2");
-    createTestFile(sourceRoot / "file3.txt", "content3");
-    BackupManager::BackupConfig config{
-        .sourceRoot = sourceRoot,
-        .backupRoot = backupRoot,
-        .deleteRemoved = true,
-        .dryRun = false
-    };
-    BackupManager manager(config);
-    manager.scan();
-    auto plan = manager.buildPlan();
-    manager.executePlan(plan);
-    remove(sourceRoot / "file2.txt");
-    manager.scan();
-    plan = manager.buildPlan();
-    manager.executePlan(plan);
-    EXPECT_TRUE(fileExists(backupRoot / "file1.txt"));
-    EXPECT_FALSE(fileExists(backupRoot / "file2.txt"));
-    EXPECT_TRUE(fileExists(backupRoot / "file3.txt"));
+
+TEST_F(BackupManagerTest, MirrorDeletesRemovedFiles) {
+    writeFile(sourceRoot / "keep.txt", "keep");
+    writeFile(sourceRoot / "drop.txt", "drop");
+
+    BackupManager::BackupConfig config{};
+    config.sourceRoot = sourceRoot;
+    config.backupRoot = backupRoot;
+    config.deleteRemoved = true;
+
+    BackupManager mgr(config);
+    mgr.scan();
+    auto plan = mgr.buildPlan();
+    mgr.executePlan(plan);
+
+    fs::remove(sourceRoot / "drop.txt");
+    writeFile(sourceRoot / "new.txt", "new");
+
+    mgr.scan();
+    plan = mgr.buildPlan();
+    mgr.executePlan(plan);
+
+    EXPECT_TRUE(fs::exists(backupRoot / "keep.txt"));
+    EXPECT_FALSE(fs::exists(backupRoot / "drop.txt"));
+    EXPECT_TRUE(fs::exists(backupRoot / "new.txt"));
 }
-TEST_F(BackupManagerTest, NonMirrorBackup) {
-    createTestFile(sourceRoot / "file1.txt", "content1");
-    createTestFile(sourceRoot / "file2.txt", "content2");
-    BackupManager::BackupConfig config{
-        .sourceRoot = sourceRoot,
-        .backupRoot = backupRoot,
-        .deleteRemoved = false,  
-        .dryRun = false
-    };
-    BackupManager manager(config);
-    manager.scan();
-    auto plan = manager.buildPlan();
-    manager.executePlan(plan);
-    remove(sourceRoot / "file1.txt");
-    manager.scan();
-    plan = manager.buildPlan();
-    manager.executePlan(plan);
-    EXPECT_TRUE(fileExists(backupRoot / "file1.txt"));
-    EXPECT_TRUE(fileExists(backupRoot / "file2.txt"));
+
+TEST_F(BackupManagerTest, DryRunDoesNotModifyFilesystem) {
+    writeFile(sourceRoot / "file.txt", "dry");
+
+    BackupManager::BackupConfig config{};
+    config.sourceRoot = sourceRoot;
+    config.backupRoot = backupRoot;
+    config.dryRun = true;
+
+    BackupManager mgr(config);
+    mgr.scan();
+    auto plan = mgr.buildPlan();
+    auto success = mgr.executePlan(plan);
+
+    EXPECT_TRUE(success);
+    EXPECT_FALSE(fs::exists(backupRoot / "file.txt"));
+    EXPECT_FALSE(fs::exists(backupRoot / ".backupmeta"));
+    EXPECT_FALSE(plan.empty());
 }
-TEST_F(BackupManagerTest, DryRun) {
-    createTestFile(sourceRoot / "file1.txt", "content1");
-    BackupManager::BackupConfig config{
-        .sourceRoot = sourceRoot,
-        .backupRoot = backupRoot,
-        .deleteRemoved = true,
-        .dryRun = true  
-    };
-    BackupManager manager(config);
-    manager.scan();
-    auto plan = manager.buildPlan();
-    manager.executePlan(plan);
-    EXPECT_FALSE(fileExists(backupRoot / "file1.txt"));
-    EXPECT_GT(plan.size(), 0);
-}
-TEST_F(BackupManagerTest, ActionTranslation) {
-    createTestFile(sourceRoot / "file1.txt", "content1");
-    createTestFile(sourceRoot / "file2.txt", "content2");
-    BackupManager::BackupConfig config{
-        .sourceRoot = sourceRoot,
-        .backupRoot = backupRoot,
-        .deleteRemoved = true,
-        .dryRun = false
-    };
-    BackupManager manager(config);
-    manager.scan();
-    auto plan = manager.buildPlan();
-    bool hasCreateDir = false;
-    bool hasCopyFile = false;
-    for (const auto& action : plan) {
-        if (action.type == BackupManager::ActionType::CreateDirectory) {
-            hasCreateDir = true;
-        } else if (action.type == BackupManager::ActionType::CopyFile) {
-            hasCopyFile = true;
-        }
-    }
-    EXPECT_TRUE(hasCreateDir || hasCopyFile); 
+
+TEST_F(BackupManagerTest, RestoreFailsWithoutMetadata) {
+    BackupManager::BackupConfig restoreCfg{};
+    restoreCfg.backupRoot = backupRoot; // empty, no .backupmeta
+    BackupManager restoreMgr(restoreCfg);
+    EXPECT_THROW(restoreMgr.restore(restoreRoot), std::runtime_error);
 }

@@ -26,17 +26,13 @@ public:
     // 压缩算法类型
     enum class CompressionType {
         None,
-        Gzip,
-        Bzip2,
-        Lz4
+        Huffman,
+        Lz77
     };
 
-    // 加密算法类型
+    // 加密算法类型（目前无可用算法）
     enum class EncryptionType {
-        None,
-        AES,
-        DES,
-        RSA
+        None
     };
   
     struct BackupConfig {
@@ -45,9 +41,11 @@ public:
         bool deleteRemoved = true;      // mirror mode
         bool dryRun = false;            // do not modify filesystem
         CompressionType compressionType = CompressionType::None;
+        bool enableCompression = false; // 是否启用压缩
         // 加密配置
         EncryptionType encryptionType = EncryptionType::None;
         std::string encryptionKey; // 加密密钥
+        bool enableEncryption = false;  // 是否启用加密
     };
 
 

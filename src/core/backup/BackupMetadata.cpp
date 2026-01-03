@@ -7,7 +7,9 @@
 namespace backup::core {
 
 void BackupMetadata::writeMetadata(const filesystem::FileTree& sourceTree,
-                                   const std::filesystem::path& backupRoot) {
+                                   const std::filesystem::path& backupRoot,
+                                   const std::string& compressionType,
+                                   const std::string& encryptionType) {
     const auto metaPath = backupRoot / ".backupmeta";
     std::ofstream out(metaPath, std::ios::trunc);
     if (!out.is_open()) {
@@ -17,6 +19,8 @@ void BackupMetadata::writeMetadata(const filesystem::FileTree& sourceTree,
     out << "tool=sd-databackup\n";
     out << "created=" << util::currentTimeUTC() << "\n";
     out << "source_root=" << sourceTree.getRootPath().string() << "\n";
+    out << "compression=" << compressionType << "\n";
+    out << "encryption=" << encryptionType << "\n";
 
     out << "[filelist]\n";
 
@@ -84,6 +88,10 @@ BackupMetadataInfo BackupMetadata::readMetadata(const std::filesystem::path& bac
                 info.createdUTC = value;
             } else if (key == "source_root") {
                 info.sourceRoot = value;
+            } else if (key == "compression") {
+                info.compressionType = value;
+            } else if (key == "encryption") {
+                info.encryptionType = value;
             }
         } else if (currentSection == Section::FileList) {
             // parse file entry
