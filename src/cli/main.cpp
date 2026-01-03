@@ -2,8 +2,11 @@
 #include <filesystem>
 #include <fstream>
 #include "backup/BackupManager.h"
+#include "backup/BackupMetadata.h"
+#include "filesystem/FileTree.h"
 
 using backup::core::BackupManager;
+using backup::core::BackupMetadata;
 namespace fs = std::filesystem;
 
 void setupTestData() {
@@ -110,6 +113,30 @@ int main() {
 
         std::cout << "Execute (dry run)...\n";
         manager.executePlan(plan);
+    }
+
+    std::cout << "\n=== Metadata Test ===\n";
+    {
+        // Create a FileTree for source
+        backup::filesystem::FileTree sourceTree("test_data/source");
+        sourceTree.build();
+
+        // Write metadata
+        std::cout << "Writing metadata...\n";
+        BackupMetadata::writeMetadata(sourceTree, "test_data/backup");
+
+        // Read metadata
+        std::cout << "Reading metadata...\n";
+        auto info = BackupMetadata::readMetadata("test_data/backup");
+
+        std::cout << "Tool: " << info.tool << "\n";
+        std::cout << "Created: " << info.createdUTC << "\n";
+        std::cout << "Source Root: " << info.sourceRoot << "\n";
+        std::cout << "Files:\n";
+        for (const auto& file : info.files) {
+            std::cout << "  " << (file.isDirectory ? "D" : "F") << " " << file.relativePath
+                      << " size=" << file.size << " mtime=" << file.mtimeNs << "\n";
+        }
     }
 
     std::cout << "\nTest completed successfully!\n";
