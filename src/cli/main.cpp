@@ -19,13 +19,18 @@ int main(int argc, char *argv[])
     {
         std::cerr << "用法: " << argv[0] << " <命令> <参数...>\n";
         std::cerr << "  命令列表:\n";
-        std::cerr << "    1. compress <输入文件> <输出文件> <算法>      压缩单个文件\n";
+        std::cerr << "    1. compress <输入文件> <输出文件> <算法> [-W <密码>]      压缩单个文件\n";
         std::cerr << "      算法: huffman | lz77\n";
-        std::cerr << "    2. decompress <输入文件> <输出文件> <算法>    解压单个文件\n";
+        std::cerr << "      -W <密码>: 启用AES加密并设置密码\n";
+        std::cerr << "    2. decompress <输入文件> <输出文件> <算法> [-W <密码>]    解压单个文件\n";
         std::cerr << "      算法: huffman | lz77\n";
-        std::cerr << "    3. backup <源目录> <备份目录> [mirror]         备份目录树\n";
+        std::cerr << "      -W <密码>: 启用AES解密并设置密码\n";
+        std::cerr << "    3. backup <源目录> <备份目录> [mirror] [compress=<算法>] [-W <密码>]         备份目录树\n";
         std::cerr << "      mirror: 镜像模式，删除目标目录中不存在的文件\n";
-        std::cerr << "    4. restore <备份目录> <还原目录>             从备份还原目录树\n";
+        std::cerr << "      compress=<算法>: 设置压缩算法 (huffman | lz77 | none)\n";
+        std::cerr << "      -W <密码>: 启用AES加密并设置密码\n";
+        std::cerr << "    4. restore <备份目录> <还原目录> [-W <密码>]             从备份还原目录树\n";
+        std::cerr << "      -W <密码>: 设置AES解密密码\n";
         return 1;
     }
 
@@ -35,56 +40,102 @@ int main(int argc, char *argv[])
     {
         if (command == "compress" || command == "decompress")
         {
-            if (argc < 5)
-            {
-                std::cerr << "用法: " << argv[0] << " " << command << " <输入文件> <输出文件> <算法>\n";
-                    std::cerr << "  算法: huffman | lz77\n";
-                return 1;
-            }
-
+            // 解析参数
             std::string inputPath = argv[2];
             std::string outputPath = argv[3];
             std::string algorithm = argv[4];
+            std::string password;
+            bool enableEncryption = false;
+
+            // 解析可选的-W参数
+            for (int i = 5; i < argc; ++i)
+            {
+                std::string arg = argv[i];
+                if ((arg == "-W" || arg == "-w") && i + 1 < argc)
+                {
+                    password = argv[++i];
+                    enableEncryption = true;
+                }
+                else
+                {
+                    std::cerr << "用法: " << argv[0] << " " << command << " <输入文件> <输出文件> <算法> [-W <密码>]\n";
+                    std::cerr << "  算法: huffman | lz77\n";
+                    return 1;
+                }
+            }
 
             if (command == "compress")
             {
+                fs::path tempPath = outputPath + ".tmp";
+
+                // 先压缩
                 if (algorithm == "huffman")
                 {
                     auto compressor = createCompressor(backup::core::compression::CompressionType::Huffman);
-                    compressor->compress(inputPath, outputPath);
-                    std::cout << "使用Huffman算法压缩文件成功！\n";
+                    compressor->compress(inputPath, tempPath);
                 }
                 else if (algorithm == "lz77")
                 {
                     auto compressor = createCompressor(backup::core::compression::CompressionType::Lz77);
-                    compressor->compress(inputPath, outputPath);
-                    std::cout << "使用LZ77算法压缩文件成功！\n";
+                    compressor->compress(inputPath, tempPath);
                 }
                 else
                 {
-                    std::cerr << "不支持的压缩/加密算法: " << algorithm << std::endl;
+                    std::cerr << "不支持的压缩算法: " << algorithm << std::endl;
                     return 1;
+                }
+
+                // 再加密（如果启用）
+                if (enableEncryption)
+                {
+                    auto encryptor = createEncryptor(EncryptionType::AES);
+                    encryptor->setKey(password);
+                    encryptor->encrypt(tempPath, outputPath);
+                    fs::remove(tempPath);
+                    std::cout << "使用" << algorithm << "算法压缩并使用AES加密文件成功！\n";
+                }
+                else
+                {
+                    fs::rename(tempPath, outputPath);
+                    std::cout << "使用" << algorithm << "算法压缩文件成功！\n";
                 }
             }
             else if (command == "decompress")
             {
+                fs::path tempPath = outputPath + ".tmp";
+
+                // 先解密（如果需要）
+                if (enableEncryption)
+                {
+                    auto encryptor = createEncryptor(EncryptionType::AES);
+                    encryptor->setKey(password);
+                    encryptor->decrypt(inputPath, tempPath);
+                }
+                else
+                {
+                    fs::copy_file(inputPath, tempPath, fs::copy_options::overwrite_existing);
+                }
+
+                // 再解压
                 if (algorithm == "huffman")
                 {
                     auto compressor = createCompressor(backup::core::compression::CompressionType::Huffman);
-                    compressor->decompress(inputPath, outputPath);
-                    std::cout << "使用Huffman算法解压文件成功！\n";
+                    compressor->decompress(tempPath, outputPath);
                 }
                 else if (algorithm == "lz77")
                 {
                     auto compressor = createCompressor(backup::core::compression::CompressionType::Lz77);
-                    compressor->decompress(inputPath, outputPath);
-                    std::cout << "使用LZ77算法解压文件成功！\n";
+                    compressor->decompress(tempPath, outputPath);
                 }
                 else
                 {
-                    std::cerr << "不支持的解压缩/解密算法: " << algorithm << std::endl;
+                    std::cerr << "不支持的解压算法: " << algorithm << std::endl;
+                    fs::remove(tempPath);
                     return 1;
                 }
+
+                fs::remove(tempPath);
+                std::cout << "使用" << algorithm << "算法解压" << (enableEncryption ? "并解密" : "") << "文件成功！\n";
             }
         }
         else if (command == "backup")
@@ -101,27 +152,50 @@ int main(int argc, char *argv[])
             bool mirrorMode = false;
             bool enableCompression = false;
             BackupManager::CompressionType compressionType = BackupManager::CompressionType::None;
+            bool enableEncryption = false;
+            std::string encryptionKey;
 
             // 解析可选参数
-            for (int i = 4; i < argc; ++i) {
+            for (int i = 4; i < argc; ++i)
+            {
                 std::string arg = argv[i];
-                if (arg == "mirror") {
+                if (arg == "mirror")
+                {
                     mirrorMode = true;
-                } else if (arg.find("compress=") == 0) {
+                }
+                else if (arg.find("compress=") == 0)
+                {
                     std::string algo = arg.substr(9);
-                    if (algo == "huffman") {
+                    if (algo == "huffman")
+                    {
                         enableCompression = true;
                         compressionType = BackupManager::CompressionType::Huffman;
-                    } else if (algo == "lz77") {
+                    }
+                    else if (algo == "lz77")
+                    {
                         enableCompression = true;
                         compressionType = BackupManager::CompressionType::Lz77;
-                    } else if (algo == "none") {
+                    }
+                    else if (algo == "none")
+                    {
                         enableCompression = false;
                         compressionType = BackupManager::CompressionType::None;
-                    } else {
+                    }
+                    else
+                    {
                         std::cerr << "不支持的压缩算法: " << algo << std::endl;
                         return 1;
                     }
+                }
+                else if ((arg == "-W" || arg == "-w") && i + 1 < argc)
+                {
+                    encryptionKey = argv[++i];
+                    enableEncryption = true;
+                }
+                else
+                {
+                    std::cerr << "不支持的参数: " << arg << std::endl;
+                    return 1;
                 }
             }
 
@@ -133,8 +207,9 @@ int main(int argc, char *argv[])
             config.dryRun = false;
             config.enableCompression = enableCompression;
             config.compressionType = compressionType;
-            config.encryptionType = BackupManager::EncryptionType::None;
-            config.enableEncryption = false;
+            config.encryptionType = BackupManager::EncryptionType::AES;
+            config.encryptionKey = encryptionKey;
+            config.enableEncryption = enableEncryption;
 
             // 创建备份管理器并执行备份
             BackupManager manager(config);
@@ -151,18 +226,29 @@ int main(int argc, char *argv[])
         }
         else if (command == "restore")
         {
-            if (argc < 4)
-            {
-                std::cerr << "用法: " << argv[0] << " restore <备份目录> <还原目录>\n";
-                return 1;
-            }
-
             std::string backupDir = argv[2];
             std::string restoreDir = argv[3];
+            std::string encryptionKey;
+
+            // 解析可选的-W参数
+            for (int i = 4; i < argc; ++i)
+            {
+                std::string arg = argv[i];
+                if ((arg == "-W" || arg == "-w") && i + 1 < argc)
+                {
+                    encryptionKey = argv[++i];
+                }
+                else
+                {
+                    std::cerr << "用法: " << argv[0] << " restore <备份目录> <还原目录> [-W <密码>]\n";
+                    return 1;
+                }
+            }
 
             // 创建备份管理器，配置备份目录
             BackupManager::BackupConfig config;
             config.backupRoot = backupDir;
+            config.encryptionKey = encryptionKey;
 
             // 创建备份管理器并执行还原
             BackupManager manager(config);

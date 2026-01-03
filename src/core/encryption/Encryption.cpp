@@ -1,31 +1,20 @@
 #include "Encryption.h"
-#include <stdexcept>
+#include "AES.h"
+#include "NoneEncryption.h"
 
 namespace backup::core::encryption
 {
-    // 目前未提供任何加密算法，保留接口占位
-    class NoopEncryption : public Encryption
-    {
-    public:
-        void setKey(const std::string &) override {}
-        void encrypt(const std::filesystem::path &, const std::filesystem::path &) override
-        {
-            throw std::runtime_error("Encryption not supported");
-        }
-        void decrypt(const std::filesystem::path &, const std::filesystem::path &) override
-        {
-            throw std::runtime_error("Encryption not supported");
-        }
-        EncryptionType getType() const override { return EncryptionType::None; }
-        std::string getName() const override { return "None"; }
-    };
-
+    // 创建加密器工厂函数
     std::unique_ptr<Encryption> createEncryptor(EncryptionType type)
     {
-        if (type == EncryptionType::None)
+        switch (type)
         {
-            return std::make_unique<NoopEncryption>();
+        case EncryptionType::None:
+            return std::make_unique<NoneEncryption>();
+        case EncryptionType::AES:
+            return std::make_unique<AESEncryption>();
+        default:
+            throw std::invalid_argument("Invalid encryption type: " + std::to_string(static_cast<int>(type)));
         }
-        throw std::invalid_argument("Invalid encryption type");
     }
-} 
+}
