@@ -1,163 +1,229 @@
 #include "BackupManager.h"
+#include "BackupMetadata.h"
 
 #include <stdexcept>
 #include <filesystem>
 #include <iostream>
 #include <fstream>
 
-namespace backup::core
-{
+namespace backup::core {
 
-    using filesystem::ChangeType;
-    using filesystem::FileChange;
-    using filesystem::FileTree;
-    using filesystem::FileTreeDiff;
-    namespace fs = std::filesystem;
+using filesystem::ChangeType;
+using filesystem::FileChange;
+using filesystem::FileTree;
+using filesystem::FileTreeDiff;
+namespace fs = std::filesystem;
 
-    BackupManager::BackupManager(BackupConfig config)
-        : config_(std::move(config)) {}
+BackupManager::BackupManager(BackupConfig config)
+    : config_(std::move(config)) {}
 
-    void BackupManager::scan()
-    {
-        if (!fs::exists(config_.sourceRoot) || !fs::is_directory(config_.sourceRoot))
-        {
-            throw std::runtime_error("源目录无效：" + config_.sourceRoot.string());
-        }
-
-        // 如果备份目录不存在，创建它
-        if (!fs::exists(config_.backupRoot))
-        {
-            fs::create_directories(config_.backupRoot);
-        }
-        else if (!fs::is_directory(config_.backupRoot))
-        {
-            throw std::runtime_error("备份目录无效：" + config_.backupRoot.string());
-        }
-
-        sourceTree_ = std::make_unique<FileTree>(config_.sourceRoot);
-        backupTree_ = std::make_unique<FileTree>(config_.backupRoot);
-
-        sourceTree_->build();
-        backupTree_->build();
+void BackupManager::scan() {
+    if (!fs::exists(config_.sourceRoot) || !fs::is_directory(config_.sourceRoot)) {
+        throw std::runtime_error("Invalid source root");
     }
 
-    std::vector<BackupManager::BackupAction> BackupManager::buildPlan()
-    {
-        if (!sourceTree_ || !backupTree_)
-        {
-            throw std::runtime_error("必须先执行scan()方法，再执行buildPlan()方法");
-        }
-
-        changes_ = FileTreeDiff::diff(*backupTree_, *sourceTree_);
-
-        return translateChangesToActions(changes_);
+    if (!fs::exists(config_.backupRoot)) {
+        fs::create_directories(config_.backupRoot);
+    } else if (!fs::is_directory(config_.backupRoot)) {
+        throw std::runtime_error("Invalid backup root");
     }
 
-    void BackupManager::executePlan(const std::vector<BackupAction> &plan)
-    {
-        for (const auto &action : plan)
-        {
-            executeAction(action);
+    sourceTree_ = std::make_unique<FileTree>(config_.sourceRoot);
+    backupTree_ = std::make_unique<FileTree>(config_.backupRoot);
+
+    sourceTree_->build();
+    backupTree_->build();
+}
+
+std::vector<BackupManager::BackupAction> BackupManager::buildPlan() {
+    if (!sourceTree_ || !backupTree_) {
+        throw std::runtime_error("必须先执行 scan()，再执行 buildPlan()");
+    }
+
+    changes_ = FileTreeDiff::diff(*backupTree_, *sourceTree_);
+    return translateChangesToActions(changes_);
+}
+
+bool BackupManager::executePlan(const std::vector<BackupAction>& plan) {
+    bool success = true;
+
+    for (const auto& action : plan) {
+        if (!executeBackupAction(action)) {
+            success = false;
         }
     }
 
-    fs::path BackupManager::resolveSourcePath(const std::string &relativePath) const
-    {
-        return config_.sourceRoot / relativePath;
+    if (success && !config_.dryRun) {
+        BackupMetadata::writeMetadata(*sourceTree_, config_.backupRoot);
     }
 
-    fs::path BackupManager::resolveBackupPath(const std::string &relativePath) const
-    {
-        return config_.backupRoot / relativePath;
-    }
-    std::vector<BackupManager::BackupAction>
-    BackupManager::translateChangesToActions(
-        const std::vector<filesystem::FileChange> &changes) const
-    {
+    return success;
+}
 
-        std::vector<BackupAction> actions;
+fs::path BackupManager::resolveSourcePath(const std::string& relativePath) const {
+    return config_.sourceRoot / relativePath;
+}
 
-        for (const auto &change : changes)
-        {
-            const auto &rel = change.relativePath;
+fs::path BackupManager::resolveBackupPath(const std::string& relativePath) const {
+    return config_.backupRoot / relativePath;
+}
 
-            switch (change.type)
-            {
-            case filesystem::ChangeType::Added:
-                if (change.newNode && change.newNode->isDirectory())
-                {
-                    actions.push_back({ActionType::CreateDirectory,
-                                       {},
-                                       resolveBackupPath(rel)});
-                }
-                else
-                {
-                    actions.push_back({ActionType::CopyFile,
-                                       resolveSourcePath(rel),
-                                       resolveBackupPath(rel)});
-                }
-                break;
+std::vector<BackupManager::BackupAction>
+BackupManager::translateChangesToActions(
+    const std::vector<filesystem::FileChange>& changes) const {
 
-            case filesystem::ChangeType::Modified:
-                // Modified 在 diff 中已保证是文件
-                actions.push_back({ActionType::UpdateFile,
-                                   resolveSourcePath(rel),
-                                   resolveBackupPath(rel)});
-                break;
+    std::vector<BackupAction> actions;
 
-            case filesystem::ChangeType::Removed:
-                if (config_.deleteRemoved && change.oldNode)
-                {
-                    actions.push_back({ActionType::RemovePath,
-                                       {},
-                                       resolveBackupPath(rel)});
-                }
-                break;
+    for (const auto& change : changes) {
+        const auto& rel = change.relativePath;
 
-            default:
-                break;
+        switch (change.type) {
+        case ChangeType::Added:
+            if (change.newNode && change.newNode->isDirectory()) {
+                actions.push_back({
+                    ActionType::CreateDirectory,
+                    {},
+                    resolveBackupPath(rel)
+                });
+            } else {
+                actions.push_back({
+                    ActionType::CopyFile,
+                    resolveSourcePath(rel),
+                    resolveBackupPath(rel)
+                });
             }
-        }
+            break;
 
-        return actions;
+        case ChangeType::Modified:
+            actions.push_back({
+                ActionType::UpdateFile,
+                resolveSourcePath(rel),
+                resolveBackupPath(rel)
+            });
+            break;
+
+        case ChangeType::Removed:
+            if (config_.deleteRemoved && change.oldNode) {
+                actions.push_back({
+                    ActionType::RemovePath,
+                    {},
+                    resolveBackupPath(rel)
+                });
+            }
+            break;
+
+        default:
+            break;
+        }
     }
 
-    void BackupManager::executeAction(const BackupAction &action)
-    {
-        if (config_.dryRun)
-        {
-            return;
-        }
+    return actions;
+}
 
-        switch (action.type)
-        {
+bool BackupManager::executeBackupAction(const BackupAction& action) {
+    if (config_.dryRun) return true;
+
+    try {
+        switch (action.type) {
         case ActionType::CreateDirectory:
             fs::create_directories(action.targetPath);
             break;
 
         case ActionType::CopyFile:
         case ActionType::UpdateFile:
-        {
             fs::create_directories(action.targetPath.parent_path());
-
-            // 目前暂时只支持直接复制文件，不支持压缩和加密
             fs::copy_file(
                 action.sourcePath,
                 action.targetPath,
-                fs::copy_options::overwrite_existing);
+                fs::copy_options::overwrite_existing
+            );
+
+            fs::permissions(
+                action.targetPath,
+                fs::status(action.sourcePath).permissions()
+            );
+            fs::last_write_time(
+                action.targetPath,
+                fs::last_write_time(action.sourcePath)
+            );
             break;
-        }
 
         case ActionType::RemovePath:
-            if (fs::exists(action.targetPath))
-            {
-                fs::remove_all(action.targetPath);
-            }
+            fs::remove_all(action.targetPath);
             break;
 
         default:
-            throw std::runtime_error("未知的备份操作类型");
+            throw std::runtime_error("Unknown backup action");
+        }
+
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << "[Backup] failed: " << e.what() << "\n";
+        return false;
+    }
+}
+
+void BackupManager::restore(const fs::path& restoreRoot) {
+    auto metadata = BackupMetadata::readMetadata(config_.backupRoot);
+    auto actions = translateMetadataToActions(metadata, fs::absolute(restoreRoot));
+
+    for (const auto& action : actions) {
+        executeRestoreAction(action);
+    }
+}
+
+std::vector<BackupManager::BackupAction>
+BackupManager::translateMetadataToActions(
+    const BackupMetadataInfo& metadata,
+    const fs::path& restoreRoot) const {
+
+    std::vector<BackupAction> dirs;
+    std::vector<BackupAction> files;
+
+    for (const auto& entry : metadata.files) {
+        if (entry.relativePath == kMetadataFile) continue;
+
+        fs::path src = config_.backupRoot / entry.relativePath;
+        fs::path dst = restoreRoot / entry.relativePath;
+
+        if (entry.isDirectory) {
+            dirs.push_back({ ActionType::CreateDirectory, {}, dst });
+        } else {
+            files.push_back({ ActionType::CopyFile, src, dst });
         }
     }
+
+    dirs.insert(dirs.end(), files.begin(), files.end());
+    return dirs;
+}
+
+bool BackupManager::executeRestoreAction(const BackupAction& action) {
+    if (config_.dryRun) return true;
+
+    try {
+        switch (action.type) {
+        case ActionType::CreateDirectory:
+            fs::create_directories(action.targetPath);
+            break;
+
+        case ActionType::CopyFile:
+            fs::create_directories(action.targetPath.parent_path());
+            fs::copy_file(
+                action.sourcePath,
+                action.targetPath,
+                fs::copy_options::overwrite_existing
+            );
+            break;
+
+        default:
+            break;
+        }
+
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << "[Restore] failed: " << e.what() << "\n";
+        return false;
+    }
+}
 
 } // namespace backup::core

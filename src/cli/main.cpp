@@ -5,6 +5,8 @@
 #include "compression/Compression.h"
 #include "encryption/Encryption.h"
 #include "backup/BackupManager.h"
+#include "backup/BackupMetadata.h"
+#include "filesystem/FileTree.h"
 
 using namespace backup::core::compression;
 using namespace backup::core::encryption;

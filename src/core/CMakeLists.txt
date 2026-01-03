@@ -1,5 +1,6 @@
 add_library(backup_core
     backup/BackupManager.cpp
+    backup/BackupMetadata.cpp
     compression/Compression.cpp
     compression/Huffman.cpp
     compression/LZ77.cpp
@@ -8,6 +9,7 @@ add_library(backup_core
     filesystem/FileTreeDiff.cpp
     filesystem/FileNode.cpp
     filesystem/FileTree.cpp
+    util/TimeUtils.cpp
 )
 
 target_include_directories(backup_core
