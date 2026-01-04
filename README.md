@@ -1,174 +1,60 @@
-# DataBackup 
+## 项目简介
 
-## 项目概述
+一个支持目录备份/还原、文件压缩/解压的工具集，提供 CLI 与 PyQt6 GUI。备份可选镜像删除、哈夫曼/Huffman 或 LZ77 压缩、AES-256-CBC 加密，并在目标目录生成 `.backupmeta` 元数据以支撑恢复。
 
-增量备份与压缩工具。系统通过比较源目录和备份目录的文件树差异来生成备份计划，支持镜像模式、干运行模式，并可选使用 Huffman 或 LZ77 进行压缩。CLI 还支持对单个文件的压缩/解压及基于元数据的还原。
+## 功能概览
 
-项目采用模块化设计，分为核心逻辑（core）和命令行接口（CLI）两部分，使用 CMake 构建，并集成 Google Test 进行单元测试。
+- 备份：比较源目录与目标备份目录，生成新增/修改/删除计划，按需压缩并加密文件写入备份目录，记录 `.backupmeta`。
+- 还原：读取 `.backupmeta`，逐文件解密、解压恢复，保留权限和时间戳。
+- 压缩/解压：单文件或目录（目录会先打包为自定义 `SDPK` 容器）支持 Huffman 或 LZ77；可选 AES 加密/解密。
+- GUI：`gui/main.py` 基于 PyQt6，封装备份、压缩/解压、还原操作，通过 `QProcess` 调用编译后的 `backup_system`。
 
-## 当前实现功能
+## 依赖
 
-目前实现了以下功能：
+- C++17、CMake 3.22+、OpenSSL (AES 加解密)
+- Python 3.10+、PyQt6（仅 GUI）
 
-### 1. 增量与镜像备份
-- 比较源目录与备份目录的文件树差异，仅复制新增/修改的文件
-- 可开启镜像模式，删除目标中已不存在的路径，保持同步
-- 支持干运行模式预览计划
+## 构建与运行 CLI
 
-### 2. 可选压缩
-- 备份时可指定 `compress=huffman|lz77|none` 自动压缩文件后写入备份目录
-- 元数据记录压缩算法，便于后续还原自动解压
-
-### 3. 文件压缩/解压 CLI
-- 提供 `compress` 与 `decompress` 命令，支持 Huffman 与 LZ77，对单个文件进行压缩/解压
-
-### 4. 还原功能
-- 基于 `.backupmeta` 元数据从备份目录恢复到指定目录
-- 自动按元数据选择解压算法，恢复权限与时间戳
-
-### 5. 文件系统树与差异
-- 递归扫描目录，记录大小、修改时间等属性
-- 生成增量备份计划：创建目录、复制文件、更新文件、删除路径
-
-## 架构设计
-
-项目架构分为以下层次：
-
-1. **文件系统抽象层**：`FileNode` 和 `FileTree` 类负责构建和表示文件系统树结构。
-2. **差异计算层**：`FileTreeDiff` 类计算两个文件树之间的差异。
-3. **备份管理层**：`BackupManager` 协调整个备份/还原流程，处理压缩与元数据。
-4. **用户接口层**：CLI 程序提供备份、还原、压缩/解压命令。
-
-这种分层设计使得各模块职责清晰，便于测试和维护。
-
-## 核心模块详细说明
-
-### FileNode 类
-
-#### 设计目的
-`FileNode` 类表示文件系统中的一个节点（文件或目录）。它封装了文件的基本属性，并提供树结构支持。
-
-#### 主要成员变量
-- `name_`: 文件或目录名称
-- `relativePath_`: 相对于根目录的相对路径
-- `type_`: 文件类型（File 或 Directory）
-- `size_`: 文件大小（仅对文件有效）
-- `mtime_`: 最后修改时间
-- `children_`: 子节点列表（仅对目录有效）
-
-#### 主要方法
-- `isFile() / isDirectory()`: 判断节点类型
-- `getName() / getRelativePath()`: 获取名称和路径
-- `getSize() / getMTime()`: 获取文件大小和修改时间
-- `addChild()`: 添加子节点
-- `getChildren()`: 获取子节点列表
-
-
-### FileTree 类
-
-#### 设计目的
-`FileTree` 类负责构建和遍历整个文件系统树。它从指定的根目录开始，递归扫描所有文件和目录。
-
-#### 主要成员变量
-- `rootPath_`: 根目录路径
-- `root_`: 根节点指针
-
-#### 主要方法
-- `build()`: 构建整个文件树
-- `getRoot() / getRootPath()`: 获取根节点和路径
-- `traverseDFS()`: 深度优先遍历文件树
-
-#### 私有方法
-- `buildRecursive()`: 递归构建子树
-- `traverseDFSRecursive()`: 递归遍历
-
-
-### FileTreeDiff 类
-
-#### 设计目的
-`FileTreeDiff` 类计算两个 `FileTree` 之间的差异，返回文件变化列表。
-
-#### 主要枚举和结构体
-- `ChangeType`: 变化类型（Added, Removed, Modified）
-- `FileChange`: 变化结构体，包含类型、相对路径、旧节点和新节点
-
-#### 主要方法
-- `diff()`: 静态方法，计算两个树之间的差异
-
-#### 私有方法
-- `flatten()`: 将树扁平化为路径到节点的映射
-- `isSameFile()`: 判断两个文件节点是否相同（基于大小和修改时间）
-
-### BackupManager 类
-
-#### 设计目的
-`BackupManager` 类是备份系统的核心，负责协调整个备份流程：扫描目录、计算差异、生成计划、执行备份。
-
-#### 配置结构体
-- `BackupConfig`: 备份配置
-  - `sourceRoot`: 源目录
-  - `backupRoot`: 备份目录
-  - `deleteRemoved`: 是否删除备份中不存在的文件（镜像模式）
-  - `dryRun`: 是否仅模拟执行
-  - `enableCompression` / `compressionType`: 是否压缩及压缩算法（Huffman / LZ77 / None）
-  - `enableEncryption` / `encryptionType`: 预留的加密配置（当前无可用算法）
-
-#### 动作枚举和结构体
-- `ActionType`: 动作类型（CreateDirectory, CopyFile, UpdateFile, RemovePath）
-- `BackupAction`: 备份动作，包含类型、源路径、目标路径
-
-#### 主要方法
-- `scan()`: 扫描源目录和备份目录，构建文件树
-- `buildPlan()`: 计算差异并生成备份计划
-- `executePlan()`: 执行备份计划
-- `restore()`: 从备份目录基于元数据还原到指定目录
-
-#### 私有方法
-- `resolveSourcePath() / resolveBackupPath()`: 解析相对路径为绝对路径
-- `translateChangesToActions()`: 将文件变化转换为备份动作
-- `executeAction()`: 执行单个备份动作
-
-## 构建和运行
-
-### 依赖要求
-- C++17 编译器
-- CMake 3.16+
-- Google Test (已包含在项目中)
-
-### 构建步骤
 ```bash
-# 在项目根目录
-mkdir build
+mkdir -p build
 cd build
 cmake ..
-make
+cmake --build .
+# 可执行文件示例路径：build/src/cli/backup_system 或 build/bin/backup_system
 ```
 
-### 运行测试
+### CLI 用法
+
 ```bash
-# 构建后运行
-ctest
+# 压缩
+backup_system compress <输入路径> <输出文件> <huffman|lz77> [-W <密码>]
+
+# 解压
+backup_system decompress <输入文件> <输出路径> <huffman|lz77> [-W <密码>]
+
+# 备份
+backup_system backup <源目录> <备份目录> [mirror] [compress=none|huffman|lz77] [-W <密码>]
+
+# 还原
+backup_system restore <备份目录> <还原目录> [-W <密码>]
 ```
 
-### 命令行使用
-- 压缩文件：
-  ```bash
-  ./src/cli/backup_system compress input.txt out.bin huffman   # 或 lz77
-  ```
-- 解压文件：
-  ```bash
-  ./src/cli/backup_system decompress out.bin restored.txt huffman
-  ```
-- 备份目录（可选镜像与压缩）：
-  ```bash
-  ./src/cli/backup_system backup test_data/source test_data/backup mirror compress=huffman
-  # compress=none 关闭压缩；省略 mirror 则不删除多余文件
-  ```
-- 还原目录：
-  ```bash
-  ./src/cli/backup_system restore test_data/backup test_data/restored
-  ```
+说明：
+- `mirror` 开启镜像模式，删除目标中源已删除的文件。
+- `-W` 传入密码，启用 AES-256-CBC；未提供则不加密。
+- 压缩目录时会先打包为单文件（魔数 `SDPK`），解压阶段若检测到该格式会自动解包到输出目录。
 
-## 测试说明
+## 运行 GUI
 
-测试数据位于 `test_data/` 目录，包含源目录和备份目录的模拟数据。
+```bash
+pip install -r gui/requirements.txt
+python gui/main.py
+```
+
+GUI 会自动寻找 `backup_system` 可执行文件（优先项目内 build 产物），提供备份、压缩/解压、还原的图形界面并显示日志。
+
+## 元数据 `.backupmeta`
+
+- 备份完成后写入备份根目录，记录源根路径、创建时间、压缩/加密算法、全部文件/目录条目及 mtime/size。
+- 还原时据此决定是否解压/解密并恢复目录结构。

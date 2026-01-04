@@ -174,6 +174,13 @@ int main(int argc, char *argv[])
     {
         if (command == "compress" || command == "decompress")
         {
+            if (argc < 5)
+            {
+                std::cerr << "用法: " << argv[0] << " " << command << " <输入文件> <输出文件> <算法> [-W <密码>]\n";
+                std::cerr << "  算法: huffman | lz77\n";
+                return 1;
+            }
+
             // 解析参数
             std::string inputPath = argv[2];
             std::string outputPath = argv[3];
@@ -202,6 +209,17 @@ int main(int argc, char *argv[])
             if (command == "compress")
             {
                 fs::path tempPath = outputPath + ".tmp";
+
+                // 如果输出路径已存在：目录则报错，文件则覆盖
+                if (fs::exists(outputPath))
+                {
+                    if (fs::is_directory(outputPath))
+                    {
+                        std::cerr << "输出路径已存在且是目录: " << outputPath << std::endl;
+                        return 1;
+                    }
+                    fs::remove(outputPath);
+                }
 
                 // 若输入为目录，先打包
                 fs::path packedInput = inputPath;
