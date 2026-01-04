@@ -35,7 +35,7 @@ def find_cli_binary():
 class BackupGUI(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle('SD 数据备份 - 图形界面')
+        self.setWindowTitle('数据备份')
         self.resize(700, 480)
         self.cli = find_cli_binary()
 
@@ -103,21 +103,27 @@ class BackupGUI(QWidget):
 
         # Input / Output
         in_layout = QHBoxLayout()
-        in_layout.addWidget(QLabel('输入文件:'))
+        in_layout.addWidget(QLabel('输入路径(文件/文件夹):'))
         self.in_edit = QLineEdit()
         in_layout.addWidget(self.in_edit)
         btn_in = QPushButton('浏览')
         btn_in.clicked.connect(self.browse_input_file)
         in_layout.addWidget(btn_in)
+        btn_in_dir = QPushButton('选文件夹')
+        btn_in_dir.clicked.connect(self.browse_input_dir)
+        in_layout.addWidget(btn_in_dir)
         c_layout.addLayout(in_layout)
 
         out_layout = QHBoxLayout()
-        out_layout.addWidget(QLabel('输出文件:'))
+        out_layout.addWidget(QLabel('输出路径:'))
         self.out_edit = QLineEdit()
         out_layout.addWidget(self.out_edit)
         btn_out = QPushButton('浏览')
         btn_out.clicked.connect(self.browse_output_file)
         out_layout.addWidget(btn_out)
+        btn_out_dir = QPushButton('选文件夹')
+        btn_out_dir.clicked.connect(self.browse_output_dir)
+        out_layout.addWidget(btn_out_dir)
         c_layout.addLayout(out_layout)
 
         algo_layout = QHBoxLayout()
@@ -289,8 +295,18 @@ class BackupGUI(QWidget):
         if p:
             self.in_edit.setText(p)
 
+    def browse_input_dir(self):
+        p = QFileDialog.getExistingDirectory(self, '选择输入文件夹')
+        if p:
+            self.in_edit.setText(p)
+
     def browse_output_file(self):
         p, _ = QFileDialog.getSaveFileName(self, '选择输出文件')
+        if p:
+            self.out_edit.setText(p)
+
+    def browse_output_dir(self):
+        p = QFileDialog.getExistingDirectory(self, '选择输出文件夹')
         if p:
             self.out_edit.setText(p)
 
@@ -305,7 +321,7 @@ class BackupGUI(QWidget):
         out = self.out_edit.text().strip()
         algo = self.algo_box.currentText()
         if not inp or not out:
-            self.append_log('请选择用于压缩的输入和输出文件。')
+            self.append_log('请选择用于压缩的输入路径和输出文件。')
             return
         args = ['compress', inp, out, algo]
         if self.comp_encrypt_cb.isChecked():
@@ -331,7 +347,7 @@ class BackupGUI(QWidget):
         out = self.out_edit.text().strip()
         algo = self.algo_box.currentText()
         if not inp or not out:
-            self.append_log('请选择用于解压的输入和输出文件。')
+            self.append_log('请选择用于解压的输入文件和输出路径（若输入是目录压缩包，则输出应为目录）。')
             return
         args = ['decompress', inp, out, algo]
         if self.comp_encrypt_cb.isChecked():
