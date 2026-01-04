@@ -11,24 +11,62 @@ import os
 
 
 def find_cli_binary():
-    candidates = [
-        os.path.join('build', 'src', 'cli', 'backup_system'),
-        os.path.join('build', 'bin', 'backup_system'),
-        os.path.join('build', 'backup_system'),
-        'backup_system'
-    ]
-    for p in candidates:
-        if os.path.isabs(p):
-            if os.path.exists(p) and os.access(p, os.X_OK):
-                return p
+    # 检查是否是PyInstaller打包后的环境
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        # PyInstaller打包后的环境
+        exe_dir = os.path.dirname(sys.executable)
+        meipass_dir = sys._MEIPASS
+        
+        # 根据平台添加不同的候选路径
+        candidates = []
+        if sys.platform.startswith('win'):
+            # Windows平台
+            candidates.extend([
+                os.path.join(meipass_dir, 'backup_system.exe'),
+                os.path.join(meipass_dir, 'build', 'src', 'cli', 'backup_system.exe'),
+                os.path.join(exe_dir, 'backup_system.exe'),
+                os.path.join(exe_dir, 'build', 'src', 'cli', 'backup_system.exe')
+            ])
         else:
-            full = os.path.abspath(p)
-            if os.path.exists(full) and os.access(full, os.X_OK):
-                return full
-    # try PATH
+            # Linux/macOS平台
+            candidates.extend([
+                os.path.join(meipass_dir, 'backup_system'),
+                os.path.join(meipass_dir, 'build', 'src', 'cli', 'backup_system'),
+                os.path.join(exe_dir, 'backup_system'),
+                os.path.join(exe_dir, 'build', 'src', 'cli', 'backup_system')
+            ])
+    else:
+        # 正常开发环境
+        # 获取脚本所在目录的父目录（项目根目录）
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(script_dir)
+        
+        # 相对于项目根目录的候选路径
+        candidates = [
+            os.path.join(project_root, 'build', 'src', 'cli', 'backup_system'),
+            os.path.join(project_root, 'build', 'bin', 'backup_system'),
+            os.path.join(project_root, 'build', 'backup_system'),
+            os.path.join(project_root, 'backup_system')
+        ]
+        
+        # 在Windows上添加.exe扩展名检查
+        if sys.platform.startswith('win'):
+            candidates_with_exe = []
+            for p in candidates:
+                candidates_with_exe.append(p)
+                candidates_with_exe.append(f"{p}.exe")
+            candidates = candidates_with_exe
+    
+    # 检查所有候选路径
+    for p in candidates:
+        if os.path.exists(p) and os.access(p, os.X_OK):
+            return p
+    
+    # 尝试从PATH中查找
     which = shutil.which('backup_system')
     if which:
         return which
+    
     return None
 
 
