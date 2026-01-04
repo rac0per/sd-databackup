@@ -2,6 +2,7 @@
 #include <fstream>
 #include <stdexcept>
 #include <vector>
+#include <cstring>
 #include <openssl/evp.h>
 
 namespace backup::core::encryption
