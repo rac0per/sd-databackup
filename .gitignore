@@ -1,5 +1,6 @@
 /build/
 /test_data/
+/.venv/
 *.o
 *.exe
 *.out
