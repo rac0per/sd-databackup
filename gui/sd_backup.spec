@@ -2,19 +2,22 @@
 
 block_cipher = None
 
-# 直接指定CLI二进制文件路径
 import os
+import sys
 
-# 确保CLI二进制文件存在
-cli_binary = '../build/src/cli/backup_system.exe'
+spec_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
+project_root = os.path.abspath(os.path.join(spec_dir, '..'))
+cli_name = 'backup_system.exe' if sys.platform.startswith('win') else 'backup_system'
+cli_binary = os.path.join(project_root, 'build', 'src', 'cli', cli_name)
+
 if not os.path.exists(cli_binary):
-    raise FileNotFoundError(f"CLI二进制文件不存在: {cli_binary}")
+    raise FileNotFoundError(f"CLI binary not found: {cli_binary}")
 
 a = Analysis(
     ['main.py'],
-    pathex=['.'],
-    binaries=[],
-    datas=[(cli_binary, '.')],  # 将CLI二进制文件打包到根目录
+    pathex=[spec_dir],
+    binaries=[(cli_binary, '.')],  # keep execute permission
+    datas=[],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -34,18 +37,18 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='数据备份工具',
+    name='sd_backup',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,  # 调试时设置为True，方便查看输出
+    console=False, 
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,  # 可选：添加应用程序图标
+    icon=None, 
 )
